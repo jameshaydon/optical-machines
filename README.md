@@ -42,7 +42,84 @@ sequentially, concurrently or a mix of the two.
 
 ## Small examples
 
-...
+All the following examples use the following basic machines:
+
+``` haskell
+f , g :: (Monad m) => FlowT Int Int m ()
+f = (+) <$> ask >>= modify -- Increment the state by the input
+g = (*) <$> ask >>= modify -- Multiply the state by the input
+```
+
+Execute a machine:
+
+    λ> execFlow 10 2 f
+    12
+    λ> execFlow 10 2 g
+    20
+
+Run both `f` and `g` concurrently, on each input:
+
+    λ> execFlow 10 (2,2) (subflow _1 identity f >> subflow _2 identity g)
+    (12,20)
+
+Run both `f` and `g` concurrently, splitting the input:
+
+    λ> execFlow (20, 30) (2,2) (subflow _1 _1 f >> subflow _2 _2 g)
+    (22,60)
+
+Run both `f` and `g` concurrently, feeding `Left`s to `f` and `Right`s to `g`:
+
+    λ> execFlow (Left 10) (2,2) (subflow _1 _Left f >> subflow _2 _Right g)
+    (12,2)
+    λ> execFlow (Right 10) (2,2) (subflow _1 _Left f >> subflow _2 _Right g)
+    (2,20)
+
+Run both `f` and `g` concurrently, sometimes getting inputs at the same time:
+
+    λ> import Data.These
+    λ> import Data.These.Lens
+    λ> execFlow (This 10) (2,2) (subflow _1 here f >> subflow _2 there g)
+    (12,2)
+    λ> execFlow (That 10) (2,2) (subflow _1 here f >> subflow _2 there g)
+    (2,20)
+    λ> execFlow (These 10 20) (2,2) (subflow _1 here f >> subflow _2 there g)
+    (12,40)
+
+Run a map of `f` machines concurrently, distributing indexed inputs as
+appropriate.
+
+    λ> execFlow [('a', 1), ('b', 2), ('a', 3)] (fromList [('a', 0), ('b', 0)]) (isubflow itraversed traverse f)
+    fromList [('a',4),('b',2)]
+
+Run a list of `f` machines, feeding each input to all machines:
+
+    λ> execFlow 10 [1,2,3,4] (subflow traverse identity f)
+    [11,12,13,14]
+
+Run a list of machines concurrently, running `f` and `g` sequentially on each
+machine, for all inputs:
+
+    λ> execFlow 10 [1,2,3,4] (subflow traverse identity f >> subflow traverse identity g)
+    [110,120,130,140]
+
+Run a list of machines concurrently, running `f` on the odd indices and `g` on
+the even indices:
+
+    λ> execFlow 10 [1,2,3,4,5,6] (subflow (itraversed . indices odd) identity f
+    >> subflow (itraversed . indices even) identity g)
+    [10,12,30,14,50,16]
+
+Run a list of machines concurrently, feeding `This`s to `f` running of the odd
+indices, and feeding `That`s to `g` running on the even indices, and feeding
+`These` to both.
+
+    λ> execFlow (This 10) [1,2,3,4,5,6] (subflow (itraversed . indices odd) here
+    f >> subflow (itraversed . indices even) there g)
+    [1,12,3,14,5,16]
+    λ> execFlow (That 10) [1,2,3,4,5,6] (subflow (itraversed . indices odd) here f >> subflow (itraversed . indices even) there g)
+    [10,2,30,4,50,6]
+    λ> execFlow (These 10 20) [1,2,3,4,5,6] (subflow (itraversed . indices odd) here f >> subflow (itraversed . indices even) there g)
+    [20,12,60,14,100,16]
 
 ## Extended example
 
