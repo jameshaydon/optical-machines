@@ -128,6 +128,10 @@ Here we have an example of a game with 2 stages.
 - The first to get more than 10 points wins and goes to stage 2.
 - In stage 2 we continue accumulating some points.
 
+See [the
+example](https://github.com/jameshaydon/optical-machines/blob/master/src/Example.hs)
+for the types.
+
 ``` haskell
 game :: FlowT Input Game Identity ()
 game = do
