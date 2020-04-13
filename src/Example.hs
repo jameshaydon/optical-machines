@@ -83,6 +83,35 @@ _Stage2Input = _Ctor @"Stage2Input"
 game :: FlowT Input Game Identity ()
 game = do
   -- Run stage 1:
+  winnerMay <- subflow _Stage1 _Stage1Input stage1
+  -- If there is a winner, go to stage 2:
+  case winnerMay of
+    First (Just (i, x)) -> put (Stage2 (MkStage2 i x))
+    _ -> pure ()
+  -- Run stage 2:
+  subflow (_Stage2 . points) _Stage2Input stage2
+  where
+    stage1 = do
+      -- Create new players:
+      subflow identity _New $ do
+        id <- use nextId
+        nextId .= id + 1
+        players . at id ?= Playing 0
+      -- For the players and 'Add' inputs:
+      subflow players _Add $ do
+        -- Run the players:
+        isubflow itraversed identity player
+        -- See if there is a winner:
+        subflow (itraversed . _Won . withIndex) identity (pure <$> get)
+    stage2 = do
+      more <- (+) <$> ask
+      modify more
+
+-- An alternate version using 'whenever'. The check for a winner is ran on all
+-- inputs so this is less efficient.
+game' :: FlowT Input Game Identity ()
+game' = do
+  -- Run stage 1:
   subflow _Stage1 _Stage1Input stage1
   -- Transition from stage 1 to stage 2:
   whenever (_Stage1 . players . itraversed . _Won . withIndex) $ \(i, x) ->
@@ -91,9 +120,9 @@ game = do
   subflow (_Stage2 . points) _Stage2Input $ stage2
   where
     stage1 = do
-      -- Run all the player workflows:
+      -- Run all the players:
       isubflow (players . itraversed) _Add player
-      -- Create new player workflows:
+      -- Create new players:
       subflow identity _New $ do
         id <- use nextId
         nextId .= id + 1

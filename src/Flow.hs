@@ -84,7 +84,7 @@ execFlow i s (FlowT f) = execStateT (runReaderT f i) s
 subflow ::
   (Monad m, Monoid r) =>
   -- | A focus on the state.
-  (LensLike' (Focusing m r) a b) ->
+  LensLike' (Focusing m r) a b ->
   -- | A focus on the input.
   Getting (Endo [ib]) ia ib ->
   -- | The subflow to run on these foci.
@@ -97,7 +97,7 @@ subflow pState pIn (FlowT f) =
 isubflow ::
   (Monad m, Eq i, Monoid r) =>
   -- | Indexed focus on the state.
-  (IndexedTraversal' i a b) ->
+  IndexedTraversal' i a b ->
   -- | A focus on the inputs which also extracts an index.
   Getting (Endo [(i, ib)]) ia (i, ib) ->
   -- | The subflow to run on these indexed foci.
@@ -109,17 +109,13 @@ isubflow subs subIn (FlowT f) = FlowT $ do
   rs <- traverse (\(i, ib) -> zoom (subs . index i) $ lift (runReaderT f ib)) ibs
   pure (mconcat rs)
 
--- case ia ^.. subIn of
---   Nothing -> pure mempty
---   Just (i, ib) ->
-
 -- | Restrict the state.
 during :: (Monad m) => Prism' a a' -> FlowT ia a' m () -> FlowT ia a m ()
 during p = subflow p identity
 
 -- | Restrict the input.
 listenFor :: (Monad m) => Prism' ia ia' -> FlowT ia' a m () -> FlowT ia a m ()
-listenFor p = subflow identity p
+listenFor = subflow identity
 
 whenever :: (Monad m, Monoid r) => Traversal' a b -> (b -> FlowT i a m r) -> FlowT i a m r
 whenever tr f = do

@@ -14,7 +14,7 @@ function:
 subflow ::
   (Monad m, Monoid r) =>
   -- | A focus on the state.
-  (LensLike' (Focusing m r) a b) ->
+  LensLike' (Focusing m r) a b ->
   -- | A focus on the input.
   Getting (Endo [ib]) ia ib ->
   -- | The subflow to run on these foci.
@@ -28,7 +28,7 @@ and its indexed variant:
 isubflow ::
   (Monad m, Eq i, Monoid r) =>
   -- | Indexed focus on the state.
-  (IndexedTraversal' i a b) ->
+   ->
   -- | A focus on the inputs which also extracts an index.
   Getting (Endo [(i, ib)]) ia (i, ib) ->
   -- | The subflow to run on these indexed foci.
