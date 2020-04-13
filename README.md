@@ -1,63 +1,89 @@
-# Flow
+# Optical machines
 
-The point is that it is easy to define interactive processes at the
-command-line:
+Allows you to create state-machines using programming patterns that look like
+concurrency.
 
-``` haskell
-foo :: IO ()
-foo = do
-  c <- getLine
-  let i = case c of
-        "a" -> 10
-        "b" -> 20
-        _ -> panic "First input must be 'a' or 'b'"
-  a <- getNum
-  b <- getNum
-  print (i * (a + b))
-```
+A `Flow i s m a` is a defines (the transition function) of a state-machine which
+reacts to inputs of type `i`, has a state of type `s`, can perform effects in
+the monad `m` and produces a value of type `a`.
 
-This interaction all happens in a short span of time, and the haskell run-time
-is kept alive between inputs. Now let's imagine that we wanted to code up the
-same process over an API, with gaps between inputs of days, maybe even weeks or
-months. This means that we can't keep the process alive, in this day and age of
-cloud functions and Kubernetes we can't assume any server will be kept alive
-very long, and regardless they should be "stateless". So that means we now need
-to work out exactly what this process needs to "remember" each time it is
-waiting for input:
-
-- It needs to remember _where_ it is in the code, e.g. "I am currently blocked
-  on the `getNum` of line 6".
-- It needs to remember any state it has accumulated up to that point, e.g. the
-  values of `i` and `a` in this case.
-
-Both can be summarised as saying that the function needs to remember the
-  _continuation_ function to be executed on the next input.
-
-Another nice thing this does is that it know exactly which datatype it is
-expecting as the next input, e.g. a number or a character, whereas an API either
-has to rely on the user hitting the correct endpoint, or will have to accept
-some generic sum-type.
-
-As an API it would look something like this:
-
-## Solutions
-
-So you _have_ to persist _some_ state. Let's call that `s`.
-
-The process must respond to inputs, let's call that `i`, we could have `i`
-depend on `s`.
-
-``` idris
-respond : (x : s) -> i x -> s
-```
-
-Let's also assume that a workflow could have sub-workflows. Then a workflow
-needs to be able to respond to a subworkflow terminating (or some other event,
-let's just do termination for now).
+The point is to define a larger flow in terms of smaller flows using this
+function:
 
 ``` haskell
-respondInput :: s -> i -> s
-respondSub :: t -> s -> s
+subflow ::
+  (Monad m, Monoid r) =>
+  -- | A focus on the state.
+  (LensLike' (Focusing m r) a b) ->
+  -- | A focus on the input.
+  Getting (Endo [ib]) ia ib ->
+  -- | The subflow to run on these foci.
+  FlowT ib b m r ->
+  FlowT ia a m r
 ```
 
-that's too liberal, maybe in some cases it doesn't want to respond to user input.
+and its indexed variant:
+
+``` haskell
+isubflow ::
+  (Monad m, Eq i, Monoid r) =>
+  -- | Indexed focus on the state.
+  (IndexedTraversal' i a b) ->
+  -- | A focus on the inputs which also extracts an index.
+  Getting (Endo [(i, ib)]) ia (i, ib) ->
+  -- | The subflow to run on these indexed foci.
+  FlowT ib b m r ->
+  FlowT ia a m r
+```
+
+These functions allow one to split up the logic of the state machine according
+to optics on both the state and the input, thereby running sub-state-machines
+sequentially, concurrently or a mix of the two.
+
+## Small examples
+
+...
+
+## Extended example
+
+Here we have an example of a game with 2 stages.
+- In stage 1 multiple players are spawned which accumuate some points.
+- The first to get more than 10 points wins and goes to stage 2.
+- In stage 2 we continue accumulating some points.
+
+``` haskell
+game :: FlowT Input Game Identity ()
+game = do
+  -- Run stage 1:
+  subflow _Stage1 _Stage1Input stage1
+  -- Transition from stage 1 to stage 2:
+  whenever (_Stage1 . players . itraversed . _Won . withIndex) $ \(i, x) ->
+    put (Stage2 (MkStage2 i x))
+  -- Run stage 2:
+  subflow (_Stage2 . points) _Stage2Input $ stage2
+  where
+    stage1 = do
+      -- Run all the player workflows:
+      isubflow (players . itraversed) _Add player
+      -- Create new player workflows:
+      subflow identity _New $ do
+        id <- use nextId
+        nextId .= id + 1
+        players . at id ?= Playing 0
+    stage2 = do
+      more <- (+) <$> ask
+      modify more
+
+player :: FlowT Int Player Identity ()
+player = do
+  currentState <- get
+  case currentState of
+    Playing x -> do
+      i <- ask
+      let x' = i + x
+      put $
+        if x' > 10
+          then Won x'
+          else Playing x'
+    Won _ -> pure ()
+```

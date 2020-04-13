@@ -87,28 +87,31 @@ subflow ::
   (LensLike' (Focusing m r) a b) ->
   -- | A focus on the input.
   Getting (Endo [ib]) ia ib ->
-  -- | The subflow to run on this restriction.
+  -- | The subflow to run on these foci.
   FlowT ib b m r ->
   FlowT ia a m r
 subflow pState pIn (FlowT f) =
   FlowT $
     mconcat <$> (asks (^.. pIn) >>= traverse (zoom pState . lift . runReaderT f))
 
--- | Restrict indexed inputs to an indexed portion of the state.
-subflows ::
+isubflow ::
   (Monad m, Eq i, Monoid r) =>
-  -- | Multiple indexed portions of the state.
+  -- | Indexed focus on the state.
   (IndexedTraversal' i a b) ->
-  -- | A focus on the input which also extracts an index.
-  Getting (First (i, ib)) ia (i, ib) ->
-  -- | The subflow to run on this restriction.
+  -- | A focus on the inputs which also extracts an index.
+  Getting (Endo [(i, ib)]) ia (i, ib) ->
+  -- | The subflow to run on these indexed foci.
   FlowT ib b m r ->
   FlowT ia a m r
-subflows subs subIn (FlowT f) = FlowT $ do
+isubflow subs subIn (FlowT f) = FlowT $ do
   ia <- ask
-  case ia ^? subIn of
-    Nothing -> pure mempty
-    Just (i, ib) -> zoom (subs . index i) $ lift (runReaderT f ib)
+  let ibs = ia ^.. subIn
+  rs <- traverse (\(i, ib) -> zoom (subs . index i) $ lift (runReaderT f ib)) ibs
+  pure (mconcat rs)
+
+-- case ia ^.. subIn of
+--   Nothing -> pure mempty
+--   Just (i, ib) ->
 
 -- | Restrict the state.
 during :: (Monad m) => Prism' a a' -> FlowT ia a' m () -> FlowT ia a m ()

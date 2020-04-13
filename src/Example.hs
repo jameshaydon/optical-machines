@@ -19,12 +19,12 @@ g = modify =<< (*) <$> ask
 data Stage1
   = MkStage1
       { _nextId :: Int,
-        _smalls :: Map Int Small
+        _players :: Map Int Player
       }
   deriving stock (Show, Generic)
 
-smalls :: Lens' Stage1 (Map Int Small)
-smalls = field @"_smalls"
+players :: Lens' Stage1 (Map Int Player)
+players = field @"_players"
 
 nextId :: Lens' Stage1 Int
 nextId = field @"_nextId"
@@ -39,83 +39,84 @@ data Stage2
 points :: Lens' Stage2 Int
 points = field @"_points"
 
-data Big
+data Game
   = Stage1 Stage1
   | Stage2 Stage2
   deriving stock (Show, Generic)
 
-_Stage1 :: Prism' Big Stage1
+_Stage1 :: Prism' Game Stage1
 _Stage1 = _Ctor @"Stage1"
 
-_Stage2 :: Prism' Big Stage2
+_Stage2 :: Prism' Game Stage2
 _Stage2 = _Ctor @"Stage2"
 
-data Small
-  = Small Int
-  | SmallDone Int
+data Player
+  = Playing Int
+  | Won Int
   deriving stock (Show, Generic)
 
-_SmallDone :: Prism' Small Int
-_SmallDone = _Ctor @"SmallDone"
+_Won :: Prism' Player Int
+_Won = _Ctor @"Won"
 
-data In1
+data Stage1Input
   = New
   | Add Int Int
   deriving stock (Generic)
 
-_New :: Prism' In1 ()
+_New :: Prism' Stage1Input ()
 _New = _Ctor @"New"
 
-_Add :: Prism' In1 (Int, Int)
+_Add :: Prism' Stage1Input (Int, Int)
 _Add = _Ctor @"Add"
 
-data In = In1 In1 | In2 Int
+data Input
+  = Stage1Input Stage1Input
+  | Stage2Input Int
   deriving stock (Generic)
 
-_In1 :: Prism' In In1
-_In1 = _Ctor @"In1"
+_Stage1Input :: Prism' Input Stage1Input
+_Stage1Input = _Ctor @"Stage1Input"
 
-_In2 :: Prism' In Int
-_In2 = _Ctor @"In2"
+_Stage2Input :: Prism' Input Int
+_Stage2Input = _Ctor @"Stage2Input"
 
-big :: FlowT In Big Identity ()
-big = do
+game :: FlowT Input Game Identity ()
+game = do
   -- Run stage 1:
-  subflow _Stage1 _In1 stage1
+  subflow _Stage1 _Stage1Input stage1
   -- Transition from stage 1 to stage 2:
-  whenever (_Stage1 . smalls . itraversed . _SmallDone . withIndex) $ \(i, x) ->
+  whenever (_Stage1 . players . itraversed . _Won . withIndex) $ \(i, x) ->
     put (Stage2 (MkStage2 i x))
   -- Run stage 2:
-  subflow (_Stage2 . points) _In2 $ do
-    more <- (+) <$> ask
-    modify more
+  subflow (_Stage2 . points) _Stage2Input $ stage2
   where
-    --modify (+ more)
-
     stage1 = do
-      -- Run all the small workflows:
-      subflows (smalls . itraversed) _Add small
-      -- Create new small workflows:
+      -- Run all the player workflows:
+      isubflow (players . itraversed) _Add player
+      -- Create new player workflows:
       subflow identity _New $ do
         id <- use nextId
         nextId .= id + 1
-        smalls . at id ?= Small 0
+        players . at id ?= Playing 0
+    stage2 = do
+      more <- (+) <$> ask
+      modify more
 
-small :: FlowT Int Small Identity ()
-small = do
-  s <- get
-  case s of
-    Small x -> do
+player :: FlowT Int Player Identity ()
+player = do
+  currentState <- get
+  case currentState of
+    Playing x -> do
       i <- ask
       let x' = i + x
       put $
         if x' > 10
-          then SmallDone x'
-          else Small x'
-    SmallDone _ -> pure ()
+          then Won x'
+          else Playing x'
+    Won _ -> pure ()
 
-example :: Big
-example = runPureFlow big inputs (Stage1 (MkStage1 0 mempty))
+endState :: Game
+endState = runPureFlow game inputs (Stage1 (MkStage1 0 mempty))
   where
     inputs =
       [ new,
@@ -125,7 +126,7 @@ example = runPureFlow big inputs (Stage1 (MkStage1 0 mempty))
         add 0 3,
         add 1 4,
         add 0 5,
-        In2 100
+        Stage2Input 100
       ]
-    add x y = In1 (Add x y)
-    new = In1 New
+    add x y = Stage1Input (Add x y)
+    new = Stage1Input New
